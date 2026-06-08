@@ -1,0 +1,26 @@
+# Read-Only Agent Template
+# For agents that should only read data, never modify
+agent_name: "{{name}}"
+role: "read_only"
+permissions:
+  - name: "database"
+    type: "database"
+    effect: "allow"
+    constraints:
+      allowed_operations: ["read"]
+  - name: "file_system"
+    type: "file"
+    effect: "allow"
+    constraints:
+      allowed_operations: ["read"]
+  - name: "api_get"
+    type: "api"
+    effect: "allow"
+  - name: "send_email"
+    type: "email"
+    effect: "deny"
+  - name: "charge_card"
+    type: "payment"
+    effect: "deny"
+escalation:
+  enabled: false

@@ -1,0 +1,22 @@
+# Admin Agent Template
+# For agents with full access (use with caution)
+agent_name: "{{name}}"
+role: "admin"
+permissions:
+  - name: "database"
+    type: "database"
+    effect: "allow"
+  - name: "file_system"
+    type: "file"
+    effect: "allow"
+  - name: "api"
+    type: "api"
+    effect: "allow"
+  - name: "email"
+    type: "email"
+    effect: "allow"
+  - name: "payment"
+    type: "payment"
+    effect: "allow"
+escalation:
+  enabled: false

@@ -1,0 +1,32 @@
+# Developer Agent Template
+# For agents that can read/write code, run tests, but not deploy
+agent_name: "{{name}}"
+role: "developer"
+permissions:
+  - name: "database"
+    type: "database"
+    effect: "allow"
+    constraints:
+      allowed_operations: ["read", "write"]
+      allowed_tables: ["staging", "test"]
+  - name: "file_system"
+    type: "file"
+    effect: "allow"
+    constraints:
+      allowed_operations: ["read", "write"]
+  - name: "api"
+    type: "api"
+    effect: "allow"
+  - name: "github"
+    type: "api"
+    effect: "allow"
+  - name: "deploy"
+    type: "api"
+    effect: "deny"
+  - name: "charge_card"
+    type: "payment"
+    effect: "deny"
+escalation:
+  enabled: true
+  approver: "tech-lead"
+  max_escalations_per_day: 5
