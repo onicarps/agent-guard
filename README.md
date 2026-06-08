@@ -6,7 +6,7 @@
 
 ```bash
 # Install
-pip install agent-guard
+pip install agent-guard-iam
 
 # Register an agent
 agent-guard register --name "my-agent" --role developer --policy-file policy.yaml
