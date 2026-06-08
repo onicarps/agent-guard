@@ -5,7 +5,7 @@ import asyncio
 import functools
 from typing import Any, Callable
 
-from agent_guard.engine import PermissionEngine, PermissionDeniedError
+from agent_guard.engine import PermissionEngine
 
 
 class LangChainGuard:

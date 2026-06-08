@@ -4,7 +4,7 @@ from __future__ import annotations
 import functools
 from typing import Any, Callable
 
-from agent_guard.engine import PermissionEngine, PermissionDeniedError
+from agent_guard.engine import PermissionEngine
 
 
 def guarded(engine: PermissionEngine, agent_id: str, resource: str | None = None):
@@ -28,7 +28,7 @@ def guarded(engine: PermissionEngine, agent_id: str, resource: str | None = None
             # For sync functions, we need to run the async check in a new loop
             import asyncio
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 # We're inside an async context — can't use asyncio.run()
                 # Create a new thread to run the check
                 import concurrent.futures

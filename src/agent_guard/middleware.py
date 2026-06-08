@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import functools
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable
 
-from .engine import PermissionEngine, PermissionDeniedError
+from .engine import PermissionEngine
 
 
 class GuardMiddleware:

@@ -1,10 +1,9 @@
 """Permission engine — enforces agent permissions."""
 from __future__ import annotations
 
-import time
 from typing import Any
 
-from .policies import AgentPolicy, AuditEntry, PermissionEffect, ResourcePermission, ResourceType
+from .policies import AuditEntry, PermissionEffect, ResourcePermission
 from .rate_limiter import RateLimiter
 from .registry import AgentRegistry
 

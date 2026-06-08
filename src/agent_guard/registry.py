@@ -1,29 +1,14 @@
 """Agent registry — stores and manages agent identities and policies."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-from pathlib import Path
 from typing import Any
 
 import aiosqlite
 
 from .policies import AgentPolicy, AuditEntry, PermissionEffect, ResourcePermission
-
-
-def _compute_chain_hash(
-    entry_id: str,
-    agent_id: str,
-    resource: str,
-    operation: str | None,
-    effect: str,
-    timestamp: float,
-    metadata_json: str,
-    previous_hash: str,
-) -> str:
-    """Compute SHA-256 chain hash for an audit entry."""
-    data = f"{entry_id}{agent_id}{resource}{operation}{effect}{timestamp}{metadata_json}{previous_hash}"
-    return hashlib.sha256(data.encode()).hexdigest()
 
 
 DB_SCHEMA = """
@@ -62,6 +47,7 @@ class AgentRegistry:
     def __init__(self, db_path: str = "agent_guard.db"):
         self.db_path = db_path
         self._db: aiosqlite.Connection | None = None
+        self._audit_lock = asyncio.Lock()
 
     async def connect(self) -> None:
         """Initialize database connection and schema."""
@@ -169,41 +155,42 @@ class AgentRegistry:
 
     async def log_audit(self, entry: AuditEntry) -> None:
         """Write an audit log entry, linking it into the tamper-evident chain."""
-        cursor = await self._db.execute(
-            "SELECT chain_hash FROM audit_log ORDER BY timestamp DESC, entry_id DESC LIMIT 1"
-        )
-        prev_row = await cursor.fetchone()
-        previous_hash = prev_row["chain_hash"] if prev_row else ""
+        async with self._audit_lock:
+            cursor = await self._db.execute(
+                "SELECT chain_hash FROM audit_log ORDER BY timestamp DESC, entry_id DESC LIMIT 1"
+            )
+            prev_row = await cursor.fetchone()
+            previous_hash = prev_row["chain_hash"] if prev_row else ""
 
-        metadata_json = json.dumps(entry.metadata)
-        chain_hash = _compute_chain_hash(
-            entry_id=entry.entry_id,
-            agent_id=entry.agent_id,
-            resource=entry.resource,
-            operation=entry.operation,
-            effect=entry.effect.value,
-            timestamp=entry.timestamp,
-            metadata_json=metadata_json,
-            previous_hash=previous_hash,
-        )
+            metadata_json = json.dumps(entry.metadata)
+            chain_hash = _compute_chain_hash(
+                entry_id=entry.entry_id,
+                agent_id=entry.agent_id,
+                resource=entry.resource,
+                operation=entry.operation,
+                effect=entry.effect.value,
+                timestamp=entry.timestamp,
+                metadata_json=metadata_json,
+                previous_hash=previous_hash,
+            )
 
-        await self._db.execute(
-            "INSERT INTO audit_log (entry_id, agent_id, agent_name, resource, operation, effect, timestamp, metadata_json, previous_hash, chain_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                entry.entry_id,
-                entry.agent_id,
-                entry.agent_name,
-                entry.resource,
-                entry.operation,
-                entry.effect.value,
-                entry.timestamp,
-                metadata_json,
-                previous_hash,
-                chain_hash,
-            ),
-        )
-        await self._db.commit()
-        entry.previous_hash = previous_hash
+            await self._db.execute(
+                "INSERT INTO audit_log (entry_id, agent_id, agent_name, resource, operation, effect, timestamp, metadata_json, previous_hash, chain_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry.entry_id,
+                    entry.agent_id,
+                    entry.agent_name,
+                    entry.resource,
+                    entry.operation,
+                    entry.effect.value,
+                    entry.timestamp,
+                    metadata_json,
+                    previous_hash,
+                    chain_hash,
+                ),
+            )
+            await self._db.commit()
+            entry.previous_hash = previous_hash
 
     async def verify_chain(self) -> bool:
         """Recompute every entry's hash and verify the chain is intact."""

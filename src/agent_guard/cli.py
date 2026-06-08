@@ -2,15 +2,37 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import Any
+import builtins
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from .policies import AgentPolicy, PermissionEffect, ResourcePermission, ResourceType, ToolConstraint
+from .engine import PermissionEngine
+from .policies import AgentPolicy, PermissionEffect
 from .registry import AgentRegistry
+
+
+def _substitute_placeholders(data: dict, name: str, top_level: bool = True) -> dict:
+    """Recursively substitute {{name}} placeholders in policy data."""
+    result = {}
+    for key, value in data.items():
+        if isinstance(value, str):
+            result[key] = value.replace("{{name}}", name)
+        elif isinstance(value, dict):
+            result[key] = _substitute_placeholders(value, name, top_level=False)
+        elif isinstance(value, builtins.list):
+            result[key] = [
+                v.replace("{{name}}", name) if isinstance(v, str)
+                else _substitute_placeholders(v, name, top_level=False) if isinstance(v, dict)
+                else v
+                for v in value
+            ]
+        else:
+            result[key] = value
+    if top_level:
+        result["agent_name"] = name
+    return result
 
 app = typer.Typer(help="Agent-Guard: IAM for AI agents")
 console = Console()
@@ -37,6 +59,8 @@ def register(
                 import yaml
                 with open(policy_file) as f:
                     data = yaml.safe_load(f)
+                # Substitute {{name}} placeholders and override agent_name
+                data = _substitute_placeholders(data, name)
                 policy = AgentPolicy(**data)
             else:
                 policy = AgentPolicy(agent_name=name, role=role)
@@ -59,7 +83,7 @@ def check(
     async def _run():
         registry = await get_registry()
         try:
-            engine = __import__("agent_guard.engine", fromlist=["PermissionEngine"]).PermissionEngine(registry)
+            engine = PermissionEngine(registry)
             effect = await engine.check(agent_id, resource, operation)
             color = "green" if effect == PermissionEffect.ALLOW else "red"
             console.print(f"[{color}]{effect.value.upper()}[/{color}] {agent_id[:8]}... → {resource}" + (f" ({operation})" if operation else ""))
@@ -69,8 +93,8 @@ def check(
     asyncio.run(_run())
 
 
-@app.command()
-def list() -> None:
+@app.command(name="list")
+def list_agents() -> None:
     """List all registered agents."""
     async def _run():
         registry = await get_registry()

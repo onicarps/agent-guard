@@ -235,7 +235,7 @@ if not is_valid:
 ### LangChain
 
 ```python
-from agent_guard.langchain import LangChainGuard, create_guarded_agent
+from agent_guard.integrations.langchain import LangChainGuard, create_guarded_agent
 from agent_guard import AgentRegistry, PermissionEngine
 from langchain.tools import tool
 
@@ -246,10 +246,7 @@ engine = PermissionEngine(registry)
 # Guard individual tools
 guard = LangChainGuard(engine, agent_id)
 
-@guard.guard_tool
-@tool
-async def search_db(query: str) -> str:
-    return f"Results for: {query}"
+guarded_search = guard.guard_tool(search_db)
 
 # Or guard a list of tools at once
 guarded_tools = create_guarded_agent(engine, agent_id, [tool1, tool2, tool3])
@@ -258,7 +255,7 @@ guarded_tools = create_guarded_agent(engine, agent_id, [tool1, tool2, tool3])
 ### CrewAI
 
 ```python
-from agent_guard.crewai import CrewAIGuard
+from agent_guard.integrations.crewai import CrewAIGuard
 
 guard = CrewAIGuard(engine, agent_id)
 
