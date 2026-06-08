@@ -244,3 +244,29 @@ class AgentRegistry:
             )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+def _compute_chain_hash(
+    *,
+    entry_id: str,
+    agent_id: str,
+    resource: str,
+    operation: str | None,
+    effect: str,
+    timestamp: float,
+    metadata_json: str,
+    previous_hash: str,
+) -> str:
+    payload = "|".join(
+        [
+            entry_id,
+            agent_id,
+            resource,
+            operation or "",
+            effect,
+            repr(timestamp),
+            metadata_json,
+            previous_hash,
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
