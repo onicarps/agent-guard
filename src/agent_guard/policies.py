@@ -99,3 +99,4 @@ class AuditEntry(BaseModel):
     effect: PermissionEffect
     timestamp: float = Field(default_factory=lambda: __import__('time').time())
     metadata: dict[str, Any] = Field(default_factory=dict)
+    previous_hash: str = ""

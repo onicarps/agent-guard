@@ -1,6 +1,7 @@
 """Agent registry — stores and manages agent identities and policies."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,21 @@ from typing import Any
 import aiosqlite
 
 from .policies import AgentPolicy, AuditEntry, PermissionEffect, ResourcePermission
+
+
+def _compute_chain_hash(
+    entry_id: str,
+    agent_id: str,
+    resource: str,
+    operation: str | None,
+    effect: str,
+    timestamp: float,
+    metadata_json: str,
+    previous_hash: str,
+) -> str:
+    """Compute SHA-256 chain hash for an audit entry."""
+    data = f"{entry_id}{agent_id}{resource}{operation}{effect}{timestamp}{metadata_json}{previous_hash}"
+    return hashlib.sha256(data.encode()).hexdigest()
 
 
 DB_SCHEMA = """
@@ -30,6 +46,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
     effect TEXT NOT NULL,
     timestamp REAL NOT NULL,
     metadata_json TEXT DEFAULT '{}',
+    previous_hash TEXT DEFAULT '',
+    chain_hash TEXT DEFAULT '',
     FOREIGN KEY (agent_id) REFERENCES agents(agent_id)
 );
 
@@ -50,6 +68,14 @@ class AgentRegistry:
         self._db = await aiosqlite.connect(self.db_path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(DB_SCHEMA)
+        for column_ddl in (
+            "ALTER TABLE audit_log ADD COLUMN previous_hash TEXT DEFAULT ''",
+            "ALTER TABLE audit_log ADD COLUMN chain_hash TEXT DEFAULT ''",
+        ):
+            try:
+                await self._db.execute(column_ddl)
+            except Exception:
+                pass
         await self._db.commit()
 
     async def close(self) -> None:
@@ -142,12 +168,67 @@ class AgentRegistry:
         return merged
 
     async def log_audit(self, entry: AuditEntry) -> None:
-        """Write an audit log entry."""
+        """Write an audit log entry, linking it into the tamper-evident chain."""
+        cursor = await self._db.execute(
+            "SELECT chain_hash FROM audit_log ORDER BY timestamp DESC, entry_id DESC LIMIT 1"
+        )
+        prev_row = await cursor.fetchone()
+        previous_hash = prev_row["chain_hash"] if prev_row else ""
+
+        metadata_json = json.dumps(entry.metadata)
+        chain_hash = _compute_chain_hash(
+            entry_id=entry.entry_id,
+            agent_id=entry.agent_id,
+            resource=entry.resource,
+            operation=entry.operation,
+            effect=entry.effect.value,
+            timestamp=entry.timestamp,
+            metadata_json=metadata_json,
+            previous_hash=previous_hash,
+        )
+
         await self._db.execute(
-            "INSERT INTO audit_log (entry_id, agent_id, agent_name, resource, operation, effect, timestamp, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (entry.entry_id, entry.agent_id, entry.agent_name, entry.resource, entry.operation, entry.effect.value, entry.timestamp, json.dumps(entry.metadata))
+            "INSERT INTO audit_log (entry_id, agent_id, agent_name, resource, operation, effect, timestamp, metadata_json, previous_hash, chain_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                entry.entry_id,
+                entry.agent_id,
+                entry.agent_name,
+                entry.resource,
+                entry.operation,
+                entry.effect.value,
+                entry.timestamp,
+                metadata_json,
+                previous_hash,
+                chain_hash,
+            ),
         )
         await self._db.commit()
+        entry.previous_hash = previous_hash
+
+    async def verify_chain(self) -> bool:
+        """Recompute every entry's hash and verify the chain is intact."""
+        cursor = await self._db.execute(
+            "SELECT entry_id, agent_id, resource, operation, effect, timestamp, metadata_json, previous_hash, chain_hash FROM audit_log ORDER BY timestamp ASC, entry_id ASC"
+        )
+        rows = await cursor.fetchall()
+        expected_prev = ""
+        for row in rows:
+            if row["previous_hash"] != expected_prev:
+                return False
+            recomputed = _compute_chain_hash(
+                entry_id=row["entry_id"],
+                agent_id=row["agent_id"],
+                resource=row["resource"],
+                operation=row["operation"],
+                effect=row["effect"],
+                timestamp=row["timestamp"],
+                metadata_json=row["metadata_json"],
+                previous_hash=row["previous_hash"],
+            )
+            if recomputed != row["chain_hash"]:
+                return False
+            expected_prev = row["chain_hash"]
+        return True
 
     async def get_audit_log(self, agent_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """Get audit log entries, optionally filtered by agent."""
