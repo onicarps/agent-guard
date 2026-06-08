@@ -4,15 +4,17 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .policies import AgentPolicy, AuditEntry, PermissionEffect, ResourceType
+from .policies import AgentPolicy, AuditEntry, PermissionEffect, ResourcePermission, ResourceType
+from .rate_limiter import RateLimiter
 from .registry import AgentRegistry
 
 
 class PermissionEngine:
     """Checks and enforces agent permissions."""
 
-    def __init__(self, registry: AgentRegistry):
+    def __init__(self, registry: AgentRegistry, rate_limiter: RateLimiter | None = None):
         self.registry = registry
+        self.rate_limiter = rate_limiter or RateLimiter()
 
     async def check(
         self,
@@ -28,6 +30,22 @@ class PermissionEngine:
         else:
             inherited = await self.registry.resolve_permissions(agent_id, _skip_self=True)
             effect = policy.check_permission(resource, operation, inherited)
+
+            if effect == PermissionEffect.ALLOW:
+                matching = _find_allow_permission(policy.permissions, resource)
+                if matching is None:
+                    matching = _find_allow_permission(inherited, resource)
+                if matching is not None:
+                    constraints = matching.constraints
+                    if constraints.max_per_hour is not None or constraints.max_per_day is not None:
+                        if not self.rate_limiter.check(
+                            agent_id,
+                            resource,
+                            max_per_hour=constraints.max_per_hour,
+                            max_per_day=constraints.max_per_day,
+                        ):
+                            effect = PermissionEffect.DENY
+                            metadata = {**(metadata or {}), "rate_limited": True}
 
         # Log the check
         entry = AuditEntry(
@@ -86,3 +104,13 @@ class PermissionEngine:
 class PermissionDeniedError(Exception):
     """Raised when an agent is denied permission."""
     pass
+
+
+def _find_allow_permission(
+    permissions: list[ResourcePermission],
+    resource: str,
+) -> ResourcePermission | None:
+    for perm in permissions:
+        if perm.name == resource and perm.effect == PermissionEffect.ALLOW:
+            return perm
+    return None
