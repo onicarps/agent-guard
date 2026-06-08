@@ -1,6 +1,7 @@
 """LangChain integration — middleware wrapper for agent tool calls."""
 from __future__ import annotations
 
+import asyncio
 import functools
 from typing import Any, Callable
 
@@ -32,7 +33,6 @@ class LangChainGuard:
         @functools.wraps(tool_func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             tool_name = tool_func.__name__
-            import asyncio
             asyncio.run(self.engine.assert_allowed(
                 agent_id=self.agent_id,
                 resource=tool_name,
@@ -56,6 +56,3 @@ def create_guarded_agent(
         else:
             guarded_tools.append(guard.guard_tool_sync(tool))
     return guarded_tools
-
-
-import asyncio

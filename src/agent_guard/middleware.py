@@ -24,7 +24,6 @@ class GuardMiddleware:
             agent_id=agent_id,
             resource=tool_name,
             operation="execute",
-            metadata={"input": tool_input},
         )
 
     def guarded(self, agent_id: str, tool_name: str) -> Callable:
