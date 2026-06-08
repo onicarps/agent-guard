@@ -56,14 +56,18 @@ class AgentPolicy(BaseModel):
     escalation: EscalationPolicy = Field(default_factory=EscalationPolicy)
     parent_agent_id: str | None = None  # For permission inheritance
 
-    def check_permission(self, resource_name: str, operation: str | None = None) -> PermissionEffect:
+    def check_permission(
+        self,
+        resource_name: str,
+        operation: str | None = None,
+        inherited_permissions: list[ResourcePermission] | None = None,
+    ) -> PermissionEffect:
         """Check if agent has permission for a resource."""
-        # Explicit deny takes precedence
+        # Explicit deny on own permissions takes precedence over everything
         for perm in self.permissions:
             if perm.name == resource_name and perm.effect == PermissionEffect.DENY:
                 return PermissionEffect.DENY
 
-        # Check allow
         for perm in self.permissions:
             if perm.name == resource_name and perm.effect == PermissionEffect.ALLOW:
                 if operation and perm.constraints.allowed_operations:
@@ -71,7 +75,17 @@ class AgentPolicy(BaseModel):
                         return PermissionEffect.DENY
                 return PermissionEffect.ALLOW
 
-        # Default deny
+        if inherited_permissions:
+            for perm in inherited_permissions:
+                if perm.name == resource_name and perm.effect == PermissionEffect.DENY:
+                    return PermissionEffect.DENY
+            for perm in inherited_permissions:
+                if perm.name == resource_name and perm.effect == PermissionEffect.ALLOW:
+                    if operation and perm.constraints.allowed_operations:
+                        if operation not in perm.constraints.allowed_operations:
+                            return PermissionEffect.DENY
+                    return PermissionEffect.ALLOW
+
         return PermissionEffect.DENY
 
 

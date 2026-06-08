@@ -7,7 +7,7 @@ from typing import Any
 
 import aiosqlite
 
-from .policies import AgentPolicy, AuditEntry, PermissionEffect
+from .policies import AgentPolicy, AuditEntry, PermissionEffect, ResourcePermission
 
 
 DB_SCHEMA = """
@@ -112,7 +112,34 @@ class AgentRegistry:
         policy = await self.get_agent(agent_id)
         if not policy:
             return PermissionEffect.DENY
-        return policy.check_permission(resource, operation)
+        inherited = await self.resolve_permissions(agent_id, _skip_self=True)
+        return policy.check_permission(resource, operation, inherited)
+
+    async def resolve_permissions(
+        self,
+        agent_id: str,
+        _skip_self: bool = False,
+    ) -> list[ResourcePermission]:
+        """Walk the parent chain and collect inherited permissions.
+
+        Returns merged list ordered from most-specific (self) to least-specific
+        (root ancestor). Cycles are broken via a visited set, and missing
+        ancestors are skipped silently.
+        """
+        merged: list[ResourcePermission] = []
+        visited: set[str] = set()
+        current_id: str | None = agent_id
+        first = True
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            policy = await self.get_agent(current_id)
+            if not policy:
+                break
+            if not (first and _skip_self):
+                merged.extend(policy.permissions)
+            first = False
+            current_id = policy.parent_agent_id
+        return merged
 
     async def log_audit(self, entry: AuditEntry) -> None:
         """Write an audit log entry."""

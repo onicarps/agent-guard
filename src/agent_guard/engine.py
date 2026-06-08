@@ -26,7 +26,8 @@ class PermissionEngine:
         if not policy:
             effect = PermissionEffect.DENY
         else:
-            effect = policy.check_permission(resource, operation)
+            inherited = await self.registry.resolve_permissions(agent_id, _skip_self=True)
+            effect = policy.check_permission(resource, operation, inherited)
 
         # Log the check
         entry = AuditEntry(
