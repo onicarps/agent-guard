@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 
 import pytest
 from typer.testing import CliRunner
@@ -49,6 +51,26 @@ def _seed_audit_check(agent_id: str, resource: str) -> None:
             await registry.close()
 
     asyncio.run(_go())
+
+
+class TestMainBlock:
+    """Test the __main__ entry point (S7)."""
+
+    def test_main_block_help(self, cli_env):
+        """Running the module via python -m should show help."""
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_guard.cli", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=str(cli_env),
+        )
+        assert result.returncode == 0
+        assert "Agent-Guard" in result.stdout
+        assert "register" in result.stdout
+        assert "check" in result.stdout
+        assert "list" in result.stdout
+        assert "audit" in result.stdout
+        assert "delete" in result.stdout
 
 
 class TestRegisterCommand:
@@ -181,3 +203,23 @@ class TestAuditCommand:
         assert result.exit_code == 0
         assert "audited" in result.stdout
         assert "resource_a" in result.stdout
+
+
+class TestDeleteCommand:
+    def test_delete_agent(self, cli_env):
+        agent_id = _seed_agent(AgentPolicy(agent_name="to-delete"))
+
+        result = runner.invoke(
+            app,
+            ["delete", "--agent-id", agent_id],
+        )
+        assert result.exit_code == 0
+        assert "Deleted agent" in result.stdout
+
+    def test_delete_nonexistent(self, cli_env):
+        result = runner.invoke(
+            app,
+            ["delete", "--agent-id", "nonexistent-id"],
+        )
+        assert result.exit_code == 0
+        assert "not found" in result.stdout

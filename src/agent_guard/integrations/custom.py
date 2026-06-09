@@ -15,7 +15,7 @@ def guarded(engine: PermissionEngine, agent_id: str, resource: str | None = None
         async def send_email(to: str, subject: str, body: str):
             ...
     """
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             res = resource or func.__name__

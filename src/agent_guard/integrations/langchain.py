@@ -15,7 +15,7 @@ class LangChainGuard:
         self.engine = engine
         self.agent_id = agent_id
 
-    def guard_tool(self, tool_func: Callable) -> Callable:
+    def guard_tool(self, tool_func: Callable[..., Any]) -> Callable[..., Any]:
         """Wrap a LangChain tool to enforce permissions."""
         @functools.wraps(tool_func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -28,7 +28,7 @@ class LangChainGuard:
             return await tool_func(*args, **kwargs)
         return wrapper
 
-    def guard_tool_sync(self, tool_func: Callable) -> Callable:
+    def guard_tool_sync(self, tool_func: Callable[..., Any]) -> Callable[..., Any]:
         """Wrap a synchronous LangChain tool."""
         @functools.wraps(tool_func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:

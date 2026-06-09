@@ -14,7 +14,7 @@ class CrewAIGuard:
         self.engine = engine
         self.agent_id = agent_id
 
-    def guard_task(self, task_func: Callable) -> Callable:
+    def guard_task(self, task_func: Callable[..., Any]) -> Callable[..., Any]:
         """Decorate a CrewAI task to enforce permissions."""
         @functools.wraps(task_func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -27,7 +27,7 @@ class CrewAIGuard:
             return await task_func(*args, **kwargs)
         return wrapper
 
-    def guard_task_sync(self, task_func: Callable) -> Callable:
+    def guard_task_sync(self, task_func: Callable[..., Any]) -> Callable[..., Any]:
         """Decorate a synchronous CrewAI task."""
         @functools.wraps(task_func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
