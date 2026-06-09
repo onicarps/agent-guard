@@ -15,13 +15,13 @@ Agent-Guard is **IAM for AI Agents** — a Python library that gives developers 
 ## Installation
 
 ```bash
-pip install agent-guard
+pip install agent-guard-iam
 ```
 
 For framework integrations:
 ```bash
-pip install agent-guard[langchain]   # LangChain support
-pip install agent-guard[crewai]      # CrewAI support
+pip install agent-guard-iam[langchain]   # LangChain support
+pip install agent-guard-iam[crewai]      # CrewAI support
 ```
 
 Requires Python 3.11+.
