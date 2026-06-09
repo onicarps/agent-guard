@@ -42,5 +42,3 @@
 
 ### Remaining
 - ONI-83: Announcement post
-- Push to GitHub
-- Rebuild + republish to PyPI as v0.1.1
