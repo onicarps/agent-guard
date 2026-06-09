@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import enum
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -97,6 +98,6 @@ class AuditEntry(BaseModel):
     resource: str
     operation: str | None = None
     effect: PermissionEffect
-    timestamp: float = Field(default_factory=lambda: __import__('time').time())
+    timestamp: float = Field(default_factory=time.time)
     metadata: dict[str, Any] = Field(default_factory=dict)
     previous_hash: str = ""

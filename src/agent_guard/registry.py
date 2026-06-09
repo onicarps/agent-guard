@@ -49,6 +49,13 @@ class AgentRegistry:
         self._db: aiosqlite.Connection | None = None
         self._audit_lock = asyncio.Lock()
 
+    def _require_connected(self) -> None:
+        """Fail loudly if methods are called before connect()."""
+        if self._db is None:
+            raise RuntimeError(
+                "AgentRegistry not connected; call await registry.connect() first"
+            )
+
     async def connect(self) -> None:
         """Initialize database connection and schema."""
         self._db = await aiosqlite.connect(self.db_path)
@@ -72,6 +79,7 @@ class AgentRegistry:
 
     async def register_agent(self, policy: AgentPolicy) -> str:
         """Register a new agent with a policy. Returns agent_id."""
+        self._require_connected()
         import time
         now = time.time()
         await self._db.execute(
@@ -83,6 +91,7 @@ class AgentRegistry:
 
     async def get_agent(self, agent_id: str) -> AgentPolicy | None:
         """Get agent policy by ID."""
+        self._require_connected()
         cursor = await self._db.execute("SELECT policy_json FROM agents WHERE agent_id = ?", (agent_id,))
         row = await cursor.fetchone()
         if row:
@@ -91,6 +100,7 @@ class AgentRegistry:
 
     async def get_agent_by_name(self, agent_name: str) -> AgentPolicy | None:
         """Get agent policy by name."""
+        self._require_connected()
         cursor = await self._db.execute("SELECT policy_json FROM agents WHERE agent_name = ?", (agent_name,))
         row = await cursor.fetchone()
         if row:
@@ -99,6 +109,7 @@ class AgentRegistry:
 
     async def update_policy(self, agent_id: str, policy: AgentPolicy) -> bool:
         """Update an agent's policy."""
+        self._require_connected()
         import time
         cursor = await self._db.execute(
             "UPDATE agents SET policy_json = ?, role = ?, updated_at = ? WHERE agent_id = ?",
@@ -109,18 +120,21 @@ class AgentRegistry:
 
     async def delete_agent(self, agent_id: str) -> bool:
         """Delete an agent."""
+        self._require_connected()
         cursor = await self._db.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
         await self._db.commit()
         return cursor.rowcount > 0
 
     async def list_agents(self) -> list[dict[str, Any]]:
         """List all registered agents."""
+        self._require_connected()
         cursor = await self._db.execute("SELECT agent_id, agent_name, role, created_at FROM agents")
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
     async def check_permission(self, agent_id: str, resource: str, operation: str | None = None) -> PermissionEffect:
         """Check if an agent has permission for a resource."""
+        self._require_connected()
         policy = await self.get_agent(agent_id)
         if not policy:
             return PermissionEffect.DENY
@@ -155,6 +169,7 @@ class AgentRegistry:
 
     async def log_audit(self, entry: AuditEntry) -> None:
         """Write an audit log entry, linking it into the tamper-evident chain."""
+        self._require_connected()
         async with self._audit_lock:
             cursor = await self._db.execute(
                 "SELECT chain_hash FROM audit_log ORDER BY timestamp DESC, entry_id DESC LIMIT 1"
@@ -194,6 +209,7 @@ class AgentRegistry:
 
     async def verify_chain(self) -> bool:
         """Recompute every entry's hash and verify the chain is intact."""
+        self._require_connected()
         cursor = await self._db.execute(
             "SELECT entry_id, agent_id, resource, operation, effect, timestamp, metadata_json, previous_hash, chain_hash FROM audit_log ORDER BY timestamp ASC, entry_id ASC"
         )
@@ -218,7 +234,11 @@ class AgentRegistry:
         return True
 
     async def get_audit_log(self, agent_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        """Get audit log entries, optionally filtered by agent."""
+        """Get audit log entries, optionally filtered by agent.
+        
+        Returns entries with metadata_json parsed into a dict.
+        """
+        self._require_connected()
         if agent_id:
             cursor = await self._db.execute(
                 "SELECT * FROM audit_log WHERE agent_id = ? ORDER BY timestamp DESC LIMIT ?",
@@ -230,7 +250,17 @@ class AgentRegistry:
                 (limit,)
             )
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            entry = dict(row)
+            # Parse metadata_json string into dict
+            if isinstance(entry.get("metadata_json"), str):
+                try:
+                    entry["metadata_json"] = json.loads(entry["metadata_json"])
+                except (json.JSONDecodeError, TypeError):
+                    entry["metadata_json"] = {}
+            result.append(entry)
+        return result
 
 
 def _compute_chain_hash(

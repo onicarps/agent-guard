@@ -5,6 +5,7 @@ from .policies import AgentPolicy, PermissionEffect, ResourcePermission, Resourc
 from .registry import AgentRegistry
 from .engine import PermissionEngine, PermissionDeniedError
 from .middleware import GuardMiddleware
+from .templates import register_from_template
 
 __all__ = [
     "AgentPolicy",
@@ -15,4 +16,5 @@ __all__ = [
     "PermissionEngine",
     "PermissionDeniedError",
     "GuardMiddleware",
+    "register_from_template",
 ]

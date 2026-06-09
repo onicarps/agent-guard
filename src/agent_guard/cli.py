@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
+import datetime
 
 import typer
 from rich.console import Console
@@ -11,28 +11,7 @@ from rich.table import Table
 from .engine import PermissionEngine
 from .policies import AgentPolicy, PermissionEffect
 from .registry import AgentRegistry
-
-
-def _substitute_placeholders(data: dict, name: str, top_level: bool = True) -> dict:
-    """Recursively substitute {{name}} placeholders in policy data."""
-    result = {}
-    for key, value in data.items():
-        if isinstance(value, str):
-            result[key] = value.replace("{{name}}", name)
-        elif isinstance(value, dict):
-            result[key] = _substitute_placeholders(value, name, top_level=False)
-        elif isinstance(value, builtins.list):
-            result[key] = [
-                v.replace("{{name}}", name) if isinstance(v, str)
-                else _substitute_placeholders(v, name, top_level=False) if isinstance(v, dict)
-                else v
-                for v in value
-            ]
-        else:
-            result[key] = value
-    if top_level:
-        result["agent_name"] = name
-    return result
+from .templates import register_from_template
 
 app = typer.Typer(help="Agent-Guard: IAM for AI agents")
 console = Console()
@@ -56,12 +35,7 @@ def register(
         registry = await get_registry()
         try:
             if policy_file:
-                import yaml
-                with open(policy_file) as f:
-                    data = yaml.safe_load(f)
-                # Substitute {{name}} placeholders and override agent_name
-                data = _substitute_placeholders(data, name)
-                policy = AgentPolicy(**data)
+                policy = register_from_template(name, policy_file, role=role)
             else:
                 policy = AgentPolicy(agent_name=name, role=role)
 
@@ -111,11 +85,14 @@ def list_agents() -> None:
             table.add_column("Created", style="dim")
 
             for agent in agents:
+                created = datetime.datetime.fromtimestamp(
+                    agent["created_at"], tz=datetime.timezone.utc
+                ).isoformat()
                 table.add_row(
                     agent["agent_id"][:8] + "...",
                     agent["agent_name"],
                     agent["role"],
-                    str(agent["created_at"]),
+                    created,
                 )
             console.print(table)
         finally:
@@ -146,13 +123,35 @@ def audit(
 
             for entry in entries:
                 color = "green" if entry["effect"] == "allow" else "red"
+                ts = datetime.datetime.fromtimestamp(
+                    entry["timestamp"], tz=datetime.timezone.utc
+                ).isoformat()
                 table.add_row(
-                    str(entry["timestamp"]),
+                    ts,
                     entry["agent_name"],
                     entry["resource"],
                     f"[{color}]{entry['effect'].upper()}[/{color}]",
                 )
             console.print(table)
+        finally:
+            await registry.close()
+
+    asyncio.run(_run())
+
+
+@app.command(name="delete")
+def delete_agent(
+    agent_id: str = typer.Option(..., help="Agent ID to delete"),
+) -> None:
+    """Delete an agent."""
+    async def _run():
+        registry = await get_registry()
+        try:
+            deleted = await registry.delete_agent(agent_id)
+            if deleted:
+                console.print(f"[green]✓[/green] Deleted agent: {agent_id[:8]}...")
+            else:
+                console.print(f"[red]✗[/red] Agent not found: {agent_id[:8]}...")
         finally:
             await registry.close()
 
