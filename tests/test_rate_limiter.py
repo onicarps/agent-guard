@@ -1,6 +1,7 @@
 """Tests for sliding window rate limiter (ONI-78)."""
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 from unittest.mock import patch
@@ -32,60 +33,67 @@ async def registry():
 
 
 class TestRateLimiter:
-    def test_rate_limiter_allows_within_limit(self):
+    @pytest.mark.asyncio
+    async def test_rate_limiter_allows_within_limit(self):
         rl = RateLimiter()
         for _ in range(5):
-            assert rl.check("agent1", "tool1", max_per_hour=10) is True
+            assert await rl.check("agent1", "tool1", max_per_hour=10) is True
 
-    def test_rate_limiter_denies_over_limit(self):
+    @pytest.mark.asyncio
+    async def test_rate_limiter_denies_over_limit(self):
         rl = RateLimiter()
         for _ in range(10):
-            assert rl.check("agent1", "tool1", max_per_hour=10) is True
-        assert rl.check("agent1", "tool1", max_per_hour=10) is False
+            assert await rl.check("agent1", "tool1", max_per_hour=10) is True
+        assert await rl.check("agent1", "tool1", max_per_hour=10) is False
 
-    def test_rate_limiter_sliding_window(self):
+    @pytest.mark.asyncio
+    async def test_rate_limiter_sliding_window(self):
         rl = RateLimiter()
         base = 1000.0
         with patch("agent_guard.rate_limiter.time.time", return_value=base):
             for _ in range(3):
-                assert rl.check("a", "r", max_per_hour=3) is True
-            assert rl.check("a", "r", max_per_hour=3) is False
+                assert await rl.check("a", "r", max_per_hour=3) is True
+            assert await rl.check("a", "r", max_per_hour=3) is False
 
         with patch("agent_guard.rate_limiter.time.time", return_value=base + 3601):
-            assert rl.check("a", "r", max_per_hour=3) is True
+            assert await rl.check("a", "r", max_per_hour=3) is True
 
-    def test_rate_limiter_per_agent_isolated(self):
+    @pytest.mark.asyncio
+    async def test_rate_limiter_per_agent_isolated(self):
         rl = RateLimiter()
         for _ in range(2):
-            assert rl.check("a", "tool", max_per_hour=2) is True
-        assert rl.check("a", "tool", max_per_hour=2) is False
-        assert rl.check("b", "tool", max_per_hour=2) is True
+            assert await rl.check("a", "tool", max_per_hour=2) is True
+        assert await rl.check("a", "tool", max_per_hour=2) is False
+        assert await rl.check("b", "tool", max_per_hour=2) is True
 
-    def test_rate_limiter_per_resource_isolated(self):
+    @pytest.mark.asyncio
+    async def test_rate_limiter_per_resource_isolated(self):
         rl = RateLimiter()
         for _ in range(2):
-            assert rl.check("a", "tool1", max_per_hour=2) is True
-        assert rl.check("a", "tool1", max_per_hour=2) is False
-        assert rl.check("a", "tool2", max_per_hour=2) is True
+            assert await rl.check("a", "tool1", max_per_hour=2) is True
+        assert await rl.check("a", "tool1", max_per_hour=2) is False
+        assert await rl.check("a", "tool2", max_per_hour=2) is True
 
-    def test_rate_limiter_no_constraints(self):
+    @pytest.mark.asyncio
+    async def test_rate_limiter_no_constraints(self):
         rl = RateLimiter()
         for _ in range(100):
-            assert rl.check("a", "r") is True
+            assert await rl.check("a", "r") is True
 
-    def test_rate_limiter_day_window(self):
+    @pytest.mark.asyncio
+    async def test_rate_limiter_day_window(self):
         rl = RateLimiter()
         base = 5000.0
         with patch("agent_guard.rate_limiter.time.time", return_value=base):
             for _ in range(2):
-                assert rl.check("a", "r", max_per_day=2) is True
-            assert rl.check("a", "r", max_per_day=2) is False
+                assert await rl.check("a", "r", max_per_day=2) is True
+            assert await rl.check("a", "r", max_per_day=2) is False
 
         with patch("agent_guard.rate_limiter.time.time", return_value=base + 1000):
-            assert rl.check("a", "r", max_per_day=2) is False
+            assert await rl.check("a", "r", max_per_day=2) is False
 
         with patch("agent_guard.rate_limiter.time.time", return_value=base + 86401):
-            assert rl.check("a", "r", max_per_day=2) is True
+            assert await rl.check("a", "r", max_per_day=2) is True
 
 
 class TestEngineRateLimitIntegration:
@@ -108,3 +116,22 @@ class TestEngineRateLimitIntegration:
         assert await engine.check(agent_id, "capped") == PermissionEffect.ALLOW
         assert await engine.check(agent_id, "capped") == PermissionEffect.ALLOW
         assert await engine.check(agent_id, "capped") == PermissionEffect.DENY
+
+    @pytest.mark.asyncio
+    async def test_rate_limiter_concurrent_safety(self):
+        """Concurrent calls should all count against the same window (W4)."""
+        rl = RateLimiter()
+        max_per_hour = 10
+
+        # Fire 15 concurrent checks
+        results = await asyncio.gather(*[
+            rl.check("agent", "tool", max_per_hour=max_per_hour)
+            for _ in range(15)
+        ])
+
+        # Exactly 10 should pass, 5 should be denied
+        allowed = sum(1 for r in results if r is True)
+        denied = sum(1 for r in results if r is False)
+
+        assert allowed == 10, f"Expected 10 allowed, got {allowed}"
+        assert denied == 5, f"Expected 5 denied, got {denied}"

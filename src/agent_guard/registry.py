@@ -14,7 +14,7 @@ from .policies import AgentPolicy, AuditEntry, PermissionEffect, ResourcePermiss
 DB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
     agent_id TEXT PRIMARY KEY,
-    agent_name TEXT NOT NULL,
+    agent_name TEXT NOT NULL UNIQUE,
     role TEXT DEFAULT 'default',
     policy_json TEXT NOT NULL,
     parent_agent_id TEXT,

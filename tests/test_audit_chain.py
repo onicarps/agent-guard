@@ -89,6 +89,44 @@ class TestAuditChain:
         assert await registry.verify_chain() is False
 
     @pytest.mark.asyncio
+    async def test_chain_verify_previous_hash_tampered(self, registry):
+        """Tamper with previous_hash to break the chain link (W1)."""
+        for i in range(3):
+            entry = AuditEntry(
+                agent_id="a1",
+                agent_name="test",
+                resource=f"r{i}",
+                effect=PermissionEffect.ALLOW,
+            )
+            await registry.log_audit(entry)
+
+        # Tamper with previous_hash on row 3 (breaks link from row 2)
+        await registry._db.execute(
+            "UPDATE audit_log SET previous_hash = 'broken' WHERE rowid = 3"
+        )
+        await registry._db.commit()
+
+        assert await registry.verify_chain() is False
+
+    @pytest.mark.asyncio
+    async def test_chain_verify_deletion_detected(self, registry):
+        """Deleting an entry breaks the chain (W1)."""
+        for i in range(3):
+            entry = AuditEntry(
+                agent_id="a1",
+                agent_name="test",
+                resource=f"r{i}",
+                effect=PermissionEffect.ALLOW,
+            )
+            await registry.log_audit(entry)
+
+        # Delete the middle entry
+        await registry._db.execute("DELETE FROM audit_log WHERE rowid = 2")
+        await registry._db.commit()
+
+        assert await registry.verify_chain() is False
+
+    @pytest.mark.asyncio
     async def test_chain_genesis_entry(self, registry):
         entry = AuditEntry(
             agent_id="a1",

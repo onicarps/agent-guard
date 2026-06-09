@@ -1,13 +1,15 @@
 """Tests for framework integrations."""
+import asyncio
+import os
+import tempfile
+
 import pytest
 import pytest_asyncio
-import tempfile
-import os
 
-from agent_guard.policies import AgentPolicy, PermissionEffect, ResourcePermission, ResourceType
-from agent_guard.registry import AgentRegistry
 from agent_guard.engine import PermissionEngine, PermissionDeniedError
 from agent_guard.integrations.custom import guarded
+from agent_guard.policies import AgentPolicy, PermissionEffect, ResourcePermission, ResourceType
+from agent_guard.registry import AgentRegistry
 
 
 class TestCustomDecorator:
@@ -80,3 +82,61 @@ class TestCustomDecorator:
 
         result = sync_tool()
         assert result == "sync success"
+
+    @pytest.mark.asyncio
+    async def test_guarded_sync_denies(self, engine):
+        eng, reg, _ = engine
+        policy = AgentPolicy(agent_name="test")
+        agent_id = await reg.register_agent(policy)
+
+        @guarded(eng, agent_id, "unauthorized_sync")
+        def unauthorized_sync():
+            return "should not reach"
+
+        with pytest.raises(PermissionDeniedError):
+            unauthorized_sync()
+
+    @pytest.mark.asyncio
+    async def test_guarded_sync_in_async_context(self, engine):
+        """Test sync @guarded decorator called from within an async function (W3)."""
+        eng, reg, _ = engine
+        policy = AgentPolicy(
+            agent_name="test",
+            permissions=[
+                ResourcePermission(
+                    name="sync_in_async",
+                    type=ResourceType.TOOL,
+                    effect=PermissionEffect.ALLOW,
+                ),
+            ],
+        )
+        agent_id = await reg.register_agent(policy)
+
+        @guarded(eng, agent_id, "sync_in_async")
+        def sync_func():
+            return "works"
+
+        # Call the sync guarded function from inside an async context
+        # This exercises the ThreadPoolExecutor fallback path
+        async def call_sync():
+            return sync_func()
+
+        result = await call_sync()
+        assert result == "works"
+
+    @pytest.mark.asyncio
+    async def test_guarded_sync_denies_in_async_context(self, engine):
+        """Test sync @guarded denial from within an async function (W3)."""
+        eng, reg, _ = engine
+        policy = AgentPolicy(agent_name="test")
+        agent_id = await reg.register_agent(policy)
+
+        @guarded(eng, agent_id, "denied_sync")
+        def denied_sync():
+            return "should not reach"
+
+        async def call_sync():
+            return denied_sync()
+
+        with pytest.raises(PermissionDeniedError):
+            await call_sync()

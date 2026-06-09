@@ -159,3 +159,88 @@ class TestPermissionInheritance:
         engine = PermissionEngine(registry)
         assert await engine.check(child_id, "own_tool") == PermissionEffect.ALLOW
         assert await engine.check(child_id, "missing") == PermissionEffect.DENY
+
+    @pytest.mark.asyncio
+    async def test_inherited_deny_blocks_child(self, registry):
+        """Parent denies read_db, child has no rule → DENY from inherited parent (W2)."""
+        parent = AgentPolicy(
+            agent_name="parent",
+            permissions=[
+                ResourcePermission(
+                    name="read_db",
+                    type=ResourceType.DATABASE,
+                    effect=PermissionEffect.DENY,
+                ),
+            ],
+        )
+        parent_id = await registry.register_agent(parent)
+
+        child = AgentPolicy(agent_name="child", parent_agent_id=parent_id)
+        child_id = await registry.register_agent(child)
+
+        engine = PermissionEngine(registry)
+        # Child has no rule, but parent denies → DENY
+        assert await engine.check(child_id, "read_db") == PermissionEffect.DENY
+
+    @pytest.mark.asyncio
+    async def test_inherited_operation_deny(self, registry):
+        """Parent allows 'read' only, child has no rule, operation='write' → DENY (W2)."""
+        from agent_guard.policies import ToolConstraint
+
+        parent = AgentPolicy(
+            agent_name="parent",
+            permissions=[
+                ResourcePermission(
+                    name="database",
+                    type=ResourceType.DATABASE,
+                    effect=PermissionEffect.ALLOW,
+                    constraints=ToolConstraint(allowed_operations=["read"]),
+                ),
+            ],
+        )
+        parent_id = await registry.register_agent(parent)
+
+        child = AgentPolicy(agent_name="child", parent_agent_id=parent_id)
+        child_id = await registry.register_agent(child)
+
+        engine = PermissionEngine(registry)
+        # Child has no rule, parent allows read only, asking for write → DENY
+        assert await engine.check(child_id, "database", "write") == PermissionEffect.DENY
+        # But read is allowed (inherited)
+        assert await engine.check(child_id, "database", "read") == PermissionEffect.ALLOW
+
+    @pytest.mark.asyncio
+    async def test_grandparent_deny_beats_parent_allow(self, registry):
+        """Grandparent denies, parent allows → grandparent DENY wins (W6 flat-bag test)."""
+        grand = AgentPolicy(
+            agent_name="grand",
+            permissions=[
+                ResourcePermission(
+                    name="secret",
+                    type=ResourceType.TOOL,
+                    effect=PermissionEffect.DENY,
+                ),
+            ],
+        )
+        grand_id = await registry.register_agent(grand)
+
+        parent = AgentPolicy(
+            agent_name="parent",
+            parent_agent_id=grand_id,
+            permissions=[
+                ResourcePermission(
+                    name="secret",
+                    type=ResourceType.TOOL,
+                    effect=PermissionEffect.ALLOW,
+                ),
+            ],
+        )
+        parent_id = await registry.register_agent(parent)
+
+        child = AgentPolicy(agent_name="child", parent_agent_id=parent_id)
+        child_id = await registry.register_agent(child)
+
+        engine = PermissionEngine(registry)
+        # Flat-bag: grandparent DENY is in the bag, parent ALLOW is also in the bag
+        # DENY takes precedence
+        assert await engine.check(child_id, "secret") == PermissionEffect.DENY

@@ -37,7 +37,7 @@ class PermissionEngine:
                 if matching is not None:
                     constraints = matching.constraints
                     if constraints.max_per_hour is not None or constraints.max_per_day is not None:
-                        if not self.rate_limiter.check(
+                        if not await self.rate_limiter.check(
                             agent_id,
                             resource,
                             max_per_hour=constraints.max_per_hour,
